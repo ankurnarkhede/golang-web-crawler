@@ -28,7 +28,6 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	// Add the initial URL to the results
 	crawlSessionData.Lock()
 	crawlSessionData.result = append(crawlSessionData.result, rootURL)
-	crawlSessionData.visited[rootURL] = true
 	crawlSessionData.Unlock()
 
 	var crawl func(string, int, *sync.WaitGroup)
@@ -42,6 +41,7 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 		}
 
 		crawlSessionData.Lock()
+		crawlSessionData.result = append(crawlSessionData.result, url)
 		crawlSessionData.visited[url] = true
 		crawlSessionData.Unlock()
 		fmt.Printf("CrawlWebpage: Crawling %s (depth %d)\n", url, depth)
@@ -127,16 +127,24 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	c := make(chan struct{})
 	timeout := 1 * time.Minute
 	go func() {
-		fmt.Printf("CrawlWebpage: Waiting for active goroutines to finish.")
+		fmt.Printf("CrawlWebpage: Waiting for active goroutines to finish.\n")
 		defer close(c)
 		wg.Wait()
 	}()
 	select {
 	case <-c:
-		fmt.Printf("CrawlWebpage: all goroutines finished executing")
+		fmt.Printf("CrawlWebpage: all goroutines finished executing.\n")
+		crawlSessionData.Lock()
+		crawlSessionData.result = removeDuplicates(crawlSessionData.result)
+		crawlSessionData.Unlock()
+
 		return crawlSessionData.result, nil
 	case <-time.After(timeout):
-		fmt.Printf("CrawlWebpage: timedout after %s. Returning the processed results.", timeout)
+		fmt.Printf("CrawlWebpage: timedout after %s. Returning the processed results.\n", timeout)
+		crawlSessionData.Lock()
+		crawlSessionData.result = removeDuplicates(crawlSessionData.result)
+		crawlSessionData.Unlock()
+
 		return crawlSessionData.result, nil
 	}
 }

@@ -29,15 +29,19 @@ func TestCrawler(t *testing.T) {
 			t.Errorf("CrawlWebpage: error=%v", err)
 			return false
 		}
-		if !assert.Equal(t, exp, links) {
+
+		// Replaced assert.Equal() with assert.ElementsMatch() to match only with the elements and not the order of the links.
+		// The order of the links doesnt matter on our use case, the result does.
+		// The crawler is optimised to execute asynchronously which might lead to links not added in the expected order.
+		if !assert.ElementsMatch(t, exp, links) {
 			return false
 		}
 		return true
 	}
 	if err := quick.Check(f, &quick.Config{
 		Values: func(v []reflect.Value, r *rand.Rand) {
-			v[0] = reflect.ValueOf(r.Int63()) // random seed
-			v[1] = reflect.ValueOf(int(7))    // max depth between [0,5]
+			v[0] = reflect.ValueOf(r.Int63())        // random seed
+			v[1] = reflect.ValueOf(int(r.Int63n(6))) // max depth between [0,5]
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -56,6 +60,7 @@ const (
 // the seed value ensures we can re-create the same exact website while still being able to generate
 // a random layout each time.
 func testRandomServer(seed int64, maxDepth int) (*httptest.Server, []string) {
+	fmt.Printf("testRandomServer:: STARTING SERVER")
 	type link struct {
 		ToNum int
 	}
@@ -119,7 +124,8 @@ func testRandomServer(seed int64, maxDepth int) (*httptest.Server, []string) {
 	var expected []string
 	links := make(map[string]struct{})
 	for _, thisPage := range allPages {
-		if thisPage.Depth >= maxDepth {
+		// Modified the condition here to > rather than >= so as to also consider the depth 0 while calculating results
+		if thisPage.Depth > maxDepth {
 			break
 		}
 		href := srv.URL
