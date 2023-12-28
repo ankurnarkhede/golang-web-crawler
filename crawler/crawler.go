@@ -15,6 +15,8 @@ import (
 
 var wg sync.WaitGroup
 
+const httpTimeoutSeconds = 10
+
 type crawlData struct {
 	sync.RWMutex
 	visited map[string]bool
@@ -148,7 +150,8 @@ func processLinks(url, rootURL string, nodes []*cdp.Node, depth, maxDepth int, s
 }
 
 func fetchHTML(url string) (*goquery.Document, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	HTTPRequestTimeout := httpTimeoutSeconds * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), HTTPRequestTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
