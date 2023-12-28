@@ -30,99 +30,8 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	crawlSessionData.result = append(crawlSessionData.result, rootURL)
 	crawlSessionData.Unlock()
 
-	var crawl func(string, int, *sync.WaitGroup)
-	crawl = func(url string, depth int, wg *sync.WaitGroup) {
-		defer wg.Done()
-		crawlSessionData.RLock()
-		urlVisited := crawlSessionData.visited[url]
-		crawlSessionData.RUnlock()
-		if depth > maxDepth || urlVisited {
-			return
-		}
-
-		crawlSessionData.Lock()
-		crawlSessionData.result = append(crawlSessionData.result, url)
-		crawlSessionData.visited[url] = true
-		crawlSessionData.Unlock()
-		fmt.Printf("CrawlWebpage: Crawling %s (depth %d)\n", url, depth)
-
-		if loadDynamicContent {
-			var nodes []*cdp.Node
-
-			// Create context
-			ctx, cancel := chromedp.NewContext(context.Background())
-			defer cancel()
-
-			// Navigate to the website
-			err := chromedp.Run(ctx,
-				chromedp.Navigate(url),
-			)
-			if err != nil {
-				fmt.Printf("CrawlWebpage: Error in navigating to URL:: %v, err:: %v", url, err)
-				return
-			}
-
-			// @todo: Add a delay here if required if the dynamic content isnt loaded
-
-			// Extract links as nodes
-			err = chromedp.Run(ctx,
-				chromedp.Nodes(`a[href]`, &nodes, chromedp.ByQueryAll),
-			)
-			if err != nil {
-				fmt.Printf("CrawlWebpage: Error in getting links for URL:: %v, err:: %v", url, err)
-				return
-			}
-
-			// Convert nodes to strings
-			for _, node := range nodes {
-				link := node.AttributeValue("href")
-				if link != "" {
-					absURL := resolveURL(rootURL, url, link)
-					crawlSessionData.RLock()
-					urlVisited := crawlSessionData.visited[absURL]
-					crawlSessionData.RUnlock()
-
-					if !urlVisited && (!sameSite || isSameSite(rootURL, absURL)) {
-						crawlSessionData.Lock()
-						crawlSessionData.result = append(crawlSessionData.result, absURL)
-						crawlSessionData.Unlock()
-
-						wg.Add(1)
-						go crawl(absURL, depth+1, wg)
-					}
-				}
-			}
-		} else {
-			doc, err := fetchHTML(url)
-			if err != nil {
-				fmt.Printf("Error fetching %s: %v\n", url, err)
-				return
-			}
-
-			// Parse and collect links
-			doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
-				link, _ := s.Attr("href")
-				if link != "" {
-					absURL := resolveURL(rootURL, url, link)
-
-					crawlSessionData.RLock()
-					urlVisited := crawlSessionData.visited[absURL]
-					crawlSessionData.RUnlock()
-					if !urlVisited && (!sameSite || isSameSite(rootURL, absURL)) {
-						crawlSessionData.Lock()
-						crawlSessionData.result = append(crawlSessionData.result, absURL)
-						crawlSessionData.Unlock()
-
-						wg.Add(1)
-						go crawl(absURL, depth+1, wg)
-					}
-				}
-			})
-		}
-	}
-
 	wg.Add(1)
-	go crawl(rootURL, 0, &wg)
+	go crawl(rootURL, rootURL, 0, maxDepth, sameSite, loadDynamicContent, &crawlSessionData)
 
 	c := make(chan struct{})
 	timeout := 1 * time.Minute
@@ -134,18 +43,107 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	select {
 	case <-c:
 		fmt.Printf("CrawlWebpage: all goroutines finished executing.\n")
-		crawlSessionData.Lock()
-		crawlSessionData.result = removeDuplicates(crawlSessionData.result)
-		crawlSessionData.Unlock()
-
-		return crawlSessionData.result, nil
 	case <-time.After(timeout):
 		fmt.Printf("CrawlWebpage: timedout after %s. Returning the processed results.\n", timeout)
+	}
+
+	crawlSessionData.Lock()
+	crawlSessionData.result = removeDuplicates(crawlSessionData.result)
+	crawlSessionData.Unlock()
+
+	return crawlSessionData.result, nil
+}
+
+func crawl(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+	defer wg.Done()
+
+	crawlSessionData.RLock()
+	urlVisited := crawlSessionData.visited[url]
+	crawlSessionData.RUnlock()
+
+	if depth > maxDepth || urlVisited {
+		return
+	}
+
+	crawlSessionData.Lock()
+	crawlSessionData.result = append(crawlSessionData.result, url)
+	crawlSessionData.visited[url] = true
+	crawlSessionData.Unlock()
+
+	fmt.Printf("CrawlWebpage: Crawling %s (depth %d)\n", url, depth)
+
+	if loadDynamicContent {
+		processDynamicContent(url, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+	} else {
+		processStaticContent(url, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+	}
+}
+
+func processDynamicContent(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+	var nodes []*cdp.Node
+
+	ctx, cancel := chromedp.NewContext(context.Background())
+	defer cancel()
+
+	err := chromedp.Run(ctx,
+		chromedp.Navigate(url),
+	)
+	if err != nil {
+		fmt.Printf("CrawlWebpage: Error in navigating to URL:: %v, err:: %v\n", url, err)
+		return
+	}
+
+	// @todo: Add a delay here if required if the dynamic content isn't loaded
+
+	err = chromedp.Run(ctx,
+		chromedp.Nodes(`a[href]`, &nodes, chromedp.ByQueryAll),
+	)
+	if err != nil {
+		fmt.Printf("CrawlWebpage: Error in getting links for URL:: %v, err:: %v\n", url, err)
+		return
+	}
+
+	processLinks(url, rootURL, nodes, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+}
+
+func processStaticContent(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+	doc, err := fetchHTML(url)
+	if err != nil {
+		fmt.Printf("Error fetching %s: %v\n", url, err)
+		return
+	}
+
+	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+		link, _ := s.Attr("href")
+		if link != "" {
+			absURL := resolveURL(url, link)
+			processLink(absURL, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+		}
+	})
+}
+
+func processLink(absURL, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+	crawlSessionData.RLock()
+	urlVisited := crawlSessionData.visited[absURL]
+	crawlSessionData.RUnlock()
+
+	if !urlVisited && (!sameSite || isSameSite(rootURL, absURL)) {
 		crawlSessionData.Lock()
-		crawlSessionData.result = removeDuplicates(crawlSessionData.result)
+		crawlSessionData.result = append(crawlSessionData.result, absURL)
 		crawlSessionData.Unlock()
 
-		return crawlSessionData.result, nil
+		wg.Add(1)
+		go crawl(absURL, rootURL, depth+1, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+	}
+}
+
+func processLinks(url, rootURL string, nodes []*cdp.Node, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+	for _, node := range nodes {
+		link := node.AttributeValue("href")
+		if link != "" {
+			absURL := resolveURL(url, link)
+			processLink(absURL, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+		}
 	}
 }
 
@@ -174,12 +172,10 @@ func isSameSite(rootURL, absURL string) bool {
 	return root.Host == abs.Host
 }
 
-// Update resolveURL to handle relative URLs more robustly
-func resolveURL(rootURL, baseURL, link string) string {
+func resolveURL(baseURL, link string) string {
 	base, _ := url.Parse(baseURL)
 	rel, _ := url.Parse(link)
 
-	// Check if the link is absolute
 	if rel.IsAbs() {
 		return rel.String()
 	}
