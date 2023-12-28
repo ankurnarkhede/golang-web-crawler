@@ -43,6 +43,13 @@ The flag `-loadDynamicContent` can be used if you need to load the dynamic conte
 
 Thus, we use **[Chrome Devtools Protocol](https://chromedevtools.github.io/devtools-protocol/)** to load the webpage completely along with the javascript files and then analyse the links present in the webpage. Use this feature only if required. This may slow down the execution.
 
+#### Output without loading dynamic content
+![img.png](public/img.png)
+
+#### Output with loading dynamic content
+The number of URLs we got for the same URL https://duckduckgo.com is more when we load the content dynamically.
+![img_1.png](public/img_1.png)
+
 ### Notes
 - Ensure you have Go installed on your machine.
 - Modify the flags as needed to customize the crawling behavior.
