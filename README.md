@@ -38,10 +38,10 @@ Links
 
 ```
 
-### Loading dynamic content
+# Loading dynamic content
 The flag `-loadDynamicContent` can be used if you need to load the dynamic content of the webpage. Most webpages has the content rendered by javascript after the initial HTML is rendered. The content rendered by javascript can have additional links in the webpage.
 
-Thus, we use [Chrome Devtools Protocol](https://chromedevtools.github.io/devtools-protocol/) to load the webpage completely along with the javascript files and then analyse the links present in the webpage. Use this feature only if required. This may slow down the execution.
+Thus, we use **[Chrome Devtools Protocol](https://chromedevtools.github.io/devtools-protocol/)** to load the webpage completely along with the javascript files and then analyse the links present in the webpage. Use this feature only if required. This may slow down the execution.
 
 ### Notes
 - Ensure you have Go installed on your machine.

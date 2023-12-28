@@ -1,13 +1,12 @@
 package crawler
 
+// removeDuplicates : removes the duplicates from the array and returns back the unique elements in the array
 func removeDuplicates(input []string) []string {
-	// Create a map to track unique elements
+	// Create a result map to track unique elements
 	uniqueMap := make(map[string]bool)
 	var result []string
 
-	// Iterate over the input slice
 	for _, item := range input {
-		// If the item is not already in the map, add it to the result slice and the map
 		if !uniqueMap[item] {
 			result = append(result, item)
 			uniqueMap[item] = true

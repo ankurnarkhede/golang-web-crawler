@@ -17,12 +17,14 @@ var wg sync.WaitGroup
 
 const httpTimeoutSeconds = 10
 
+// crawlData : struct to store the visited URLs, final result and locks to access the data
 type crawlData struct {
 	sync.RWMutex
 	visited map[string]bool
 	result  []string
 }
 
+// CrawlWebpage : crawls the webpage as per the provided flags and returns the string slice of crawled links
 func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicContent bool) ([]string, error) {
 	var crawlSessionData = crawlData{visited: make(map[string]bool), result: []string{}}
 	fmt.Printf("CrawlWebpage: rootURL:: %v, maxDepth:: %v, sameSite:: %v, loadDynamicContent:: %v\n", rootURL, maxDepth, sameSite, loadDynamicContent)
@@ -32,14 +34,17 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	crawlSessionData.result = append(crawlSessionData.result, rootURL)
 	crawlSessionData.Unlock()
 
+	// crawl asynchronously for better performance
 	wg.Add(1)
 	go crawl(rootURL, rootURL, 0, maxDepth, sameSite, loadDynamicContent, &crawlSessionData)
 
 	c := make(chan struct{})
+	// Default timeout added as 1 minute, modify if required
 	timeout := 1 * time.Minute
 	go func() {
 		fmt.Printf("CrawlWebpage: Waiting for active goroutines to finish.\n")
 		defer close(c)
+		// Wait until all goroutines are finished executing
 		wg.Wait()
 	}()
 	select {
@@ -56,6 +61,7 @@ func CrawlWebpage(rootURL string, maxDepth int, sameSite bool, loadDynamicConten
 	return crawlSessionData.result, nil
 }
 
+// crawl : function to crawl the webpage and find links. This is expected to be called recursively.
 func crawl(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
 	defer wg.Done()
 
@@ -75,12 +81,15 @@ func crawl(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicConten
 	fmt.Printf("CrawlWebpage: Crawling %s (depth %d)\n", url, depth)
 
 	if loadDynamicContent {
+		// Load the page using Chrome Devtools Protocol to get the fully loaded page
 		processDynamicContent(url, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
 	} else {
+		// Load the initial HTML and extract links from it
 		processStaticContent(url, rootURL, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
 	}
 }
 
+// processDynamicContent : Load the page using Chrome Devtools Protocol and get the links in the page
 func processDynamicContent(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
 	var nodes []*cdp.Node
 
@@ -105,9 +114,10 @@ func processDynamicContent(url, rootURL string, depth, maxDepth int, sameSite, l
 		return
 	}
 
-	processLinks(url, rootURL, nodes, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
+	processNodes(url, rootURL, nodes, depth, maxDepth, sameSite, loadDynamicContent, crawlSessionData)
 }
 
+// processStaticContent : Get the HTML response for the URL and get the links from it.
 func processStaticContent(url, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
 	doc, err := fetchHTML(url)
 	if err != nil {
@@ -124,6 +134,8 @@ func processStaticContent(url, rootURL string, depth, maxDepth int, sameSite, lo
 	})
 }
 
+// processLink : Checks if the URL has been visited, marks it as visited and added the data to the result.
+// crawls to the next link if its not visited
 func processLink(absURL, rootURL string, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
 	crawlSessionData.RLock()
 	urlVisited := crawlSessionData.visited[absURL]
@@ -139,7 +151,8 @@ func processLink(absURL, rootURL string, depth, maxDepth int, sameSite, loadDyna
 	}
 }
 
-func processLinks(url, rootURL string, nodes []*cdp.Node, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
+// processNodes : processes the nodes of the page and gets links from it
+func processNodes(url, rootURL string, nodes []*cdp.Node, depth, maxDepth int, sameSite, loadDynamicContent bool, crawlSessionData *crawlData) {
 	for _, node := range nodes {
 		link := node.AttributeValue("href")
 		if link != "" {
@@ -177,12 +190,14 @@ func fetchHTML(url string) (*goquery.Document, error) {
 	return doc, nil
 }
 
+// isSameSite : checks if the absURL is of the same website as the rootURL
 func isSameSite(rootURL, absURL string) bool {
 	root, _ := url.Parse(rootURL)
 	abs, _ := url.Parse(absURL)
 	return root.Host == abs.Host
 }
 
+// resolveURL : Resolves the path WRT the baseURL and returns the final resolved URL
 func resolveURL(baseURL, link string) string {
 	base, _ := url.Parse(baseURL)
 	rel, _ := url.Parse(link)
