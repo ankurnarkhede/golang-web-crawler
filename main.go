@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"github.com/ankurnarkhede/golang-web-crawler/crawler"
 	"log"
+
+	"github.com/ankurnarkhede/golang-web-crawler/crawler"
 )
 
 func main() {
